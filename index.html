@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Actuator Control</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin-top: 80px;
+        }
+
+        h1 {
+            margin-bottom: 40px;
+        }
+
+        button {
+            display: block;
+            width: 250px;
+            padding: 20px;
+            margin: 20px auto;
+            font-size: 24px;
+            border-radius: 12px;
+            border: none;
+            cursor: pointer;
+        }
+
+        #extend {
+            background: #4CAF50;
+            color: white;
+        }
+
+        #retract {
+            background: #f44336;
+            color: white;
+        }
+
+        #status {
+            margin-top: 30px;
+            font-size: 18px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>ESP32 Actuator Control</h1>
+
+    <button id="extend" onclick="extendActuator()">
+        EXTEND
+    </button>
+
+    <button id="retract" onclick="retractActuator()">
+        RETRACT
+    </button>
+
+    <div id="status">Ready</div>
+
+    <script>
+
+        // Your ESP32's current IP address
+        const ESP32 = "http://192.168.12.197";
+
+        function extendActuator() {
+            document.getElementById("status").innerText = "Extending...";
+
+            fetch(ESP32 + "/extend")
+                .then(response => response.text())
+                .then(data => {
+                    document.getElementById("status").innerText = data;
+                })
+                .catch(error => {
+                    document.getElementById("status").innerText =
+                        "Could not connect to ESP32";
+                    console.error(error);
+                });
+        }
+
+        function retractActuator() {
+            document.getElementById("status").innerText = "Retracting...";
+
+            fetch(ESP32 + "/retract")
+                .then(response => response.text())
+                .then(data => {
+                    document.getElementById("status").innerText = data;
+                })
+                .catch(error => {
+                    document.getElementById("status").innerText =
+                        "Could not connect to ESP32";
+                    console.error(error);
+                });
+        }
+
+    </script>
+
+</body>
+</html>
