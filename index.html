@@ -9,6 +9,9 @@
     <!-- MQTT.js -->
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 
+    <!-- Ethers.js -->
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.5/dist/ethers.umd.min.js"></script>
+
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -48,8 +51,9 @@
             color: white;
         }
 
-        button:active {
-            transform: scale(0.97);
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
         }
 
         #status {
@@ -64,128 +68,280 @@
 
     <h1>ESP32 Actuator Control</h1>
 
-    <button id="extend" onclick="sendCommand('EXTEND')">
+    <button id="extend" onclick="authorizeAndSend('EXTEND')">
         EXTEND
     </button>
 
-    <button id="retract" onclick="sendCommand('RETRACT')">
+    <button id="retract" onclick="authorizeAndSend('RETRACT')">
         RETRACT
     </button>
 
-    <button id="stop" onclick="sendCommand('STOP')">
+    <button id="stop" onclick="authorizeAndSend('STOP')">
         STOP
     </button>
 
     <div id="status">
-        Connecting to controller...
+        Connecting...
     </div>
 
 
-    <script>
+<script>
 
-        // ==================================================
-        // HIVEMQ SETTINGS
-        // ==================================================
+// ======================================================
+// HIVEMQ
+// ======================================================
 
-        const mqttHost =
-            "wss://8a667d6eb5234254958db7ce3a42fa44.s1.eu.hivemq.cloud:8884/mqtt";
+const mqttHost =
+    "wss://8a667d6eb5234254958db7ce3a42fa44.s1.eu.hivemq.cloud:8884/mqtt";
 
-        const mqttUsername = "web-controller";
+const mqttUsername = "web-controller";
 
-        const mqttPassword = "esp32run1!";
+const mqttPassword = "esp32run1!";
 
-        const mqttTopic = "actuator/control";
-
-
-        // ==================================================
-        // CONNECT TO HIVEMQ
-        // ==================================================
-
-        const client = mqtt.connect(mqttHost, {
-
-            username: mqttUsername,
-
-            password: mqttPassword,
-
-            protocol: "wss",
-
-            reconnectPeriod: 2000
-        });
+const mqttTopic = "actuator/control";
 
 
-        // ==================================================
-        // CONNECTION EVENTS
-        // ==================================================
+// ======================================================
+// SOLIDITY CONTRACT
+// ======================================================
 
-        client.on("connect", function () {
+const contractAddress =
+    "0xdF0c26f4EE1F23349534B4e5fe5364d5AC0ed4F3";
 
-            console.log("Connected to HiveMQ");
-
-            document.getElementById("status").innerText =
-                "🟢 Connected to controller";
-
-        });
-
-
-        client.on("error", function (error) {
-
-            console.error("MQTT error:", error);
-
-            document.getElementById("status").innerText =
-                "🔴 Connection error";
-
-        });
+const contractABI = [
+    "function extend()",
+    "function retract()",
+    "function stop()"
+];
 
 
-        client.on("offline", function () {
+// ======================================================
+// MQTT CONNECTION
+// ======================================================
 
-            document.getElementById("status").innerText =
-                "🟡 Controller offline";
+const mqttClient = mqtt.connect(mqttHost, {
 
-        });
+    username: mqttUsername,
+    password: mqttPassword,
+
+    protocol: "wss",
+
+    reconnectPeriod: 2000
+});
 
 
-        // ==================================================
-        // SEND ACTUATOR COMMAND
-        // ==================================================
+mqttClient.on("connect", function () {
 
-        function sendCommand(command) {
+    console.log("Connected to HiveMQ");
 
-            if (!client.connected) {
+    updateStatus("🟢 Controller ready");
 
-                document.getElementById("status").innerText =
-                    "🔴 Not connected";
+});
 
-                return;
-            }
 
-            client.publish(
-                mqttTopic,
-                command,
-                {
-                    qos: 0
-                },
-                function (error) {
+mqttClient.on("error", function (error) {
 
-                    if (error) {
+    console.error("MQTT error:", error);
 
-                        console.error(error);
+    updateStatus("🔴 MQTT connection error");
 
-                        document.getElementById("status").innerText =
-                            "🔴 Command failed";
+});
 
-                    } else {
 
-                        document.getElementById("status").innerText =
-                            "Command sent: " + command;
+mqttClient.on("offline", function () {
 
-                        console.log("Sent:", command);
-                    }
-                }
-            );
+    updateStatus("🟡 Controller offline");
+
+});
+
+
+// ======================================================
+// STATUS
+// ======================================================
+
+function updateStatus(message) {
+
+    document.getElementById("status").innerText = message;
+
+}
+
+
+// ======================================================
+// META MASK + SOLIDITY + MQTT
+// ======================================================
+
+async function authorizeAndSend(command) {
+
+    try {
+
+        // Make sure MetaMask exists
+        if (!window.ethereum) {
+
+            alert("MetaMask is not installed.");
+
+            return;
         }
 
-    </script>
+
+        // Make sure MQTT is connected
+        if (!mqttClient.connected) {
+
+            updateStatus("🔴 MQTT is not connected.");
+
+            return;
+        }
+
+
+        updateStatus("🦊 Opening MetaMask...");
+
+
+        // Connect to MetaMask
+        const provider =
+            new ethers.BrowserProvider(window.ethereum);
+
+
+        // Request wallet connection
+        await provider.send(
+            "eth_requestAccounts",
+            []
+        );
+
+
+        // Check network
+        const network =
+            await provider.getNetwork();
+
+
+        // Sepolia chain ID = 11155111
+        if (network.chainId !== 11155111n) {
+
+            updateStatus("🔴 Switch MetaMask to Sepolia.");
+
+            alert("Please switch MetaMask to the Sepolia Testnet.");
+
+            return;
+        }
+
+
+        // Get signer
+        const signer =
+            await provider.getSigner();
+
+
+        // Create contract
+        const contract =
+            new ethers.Contract(
+                contractAddress,
+                contractABI,
+                signer
+            );
+
+
+        updateStatus(
+            "🦊 Approve " + command + " in MetaMask..."
+        );
+
+
+        // ==================================================
+        // CALL SOLIDITY FUNCTION
+        // ==================================================
+
+        let transaction;
+
+
+        if (command === "EXTEND") {
+
+            transaction = await contract.extend();
+
+        }
+
+        else if (command === "RETRACT") {
+
+            transaction = await contract.retract();
+
+        }
+
+        else if (command === "STOP") {
+
+            transaction = await contract.stop();
+
+        }
+
+
+        console.log(
+            "Blockchain transaction:",
+            transaction.hash
+        );
+
+
+        updateStatus(
+            "⛓️ Waiting for blockchain confirmation..."
+        );
+
+
+        // Wait for Sepolia confirmation
+        await transaction.wait();
+
+
+        console.log(
+            "Blockchain transaction confirmed."
+        );
+
+
+        // ==================================================
+        // SEND MQTT COMMAND
+        // ==================================================
+
+        updateStatus(
+            "📡 Sending " + command + " to ESP32..."
+        );
+
+
+        mqttClient.publish(
+            mqttTopic,
+            command,
+            {
+                qos: 0
+            },
+            function(error) {
+
+                if (error) {
+
+                    console.error(error);
+
+                    updateStatus(
+                        "🔴 MQTT command failed."
+                    );
+
+                }
+
+                else {
+
+                    updateStatus(
+                        "✅ " + command + " sent to ESP32"
+                    );
+
+                }
+
+            }
+        );
+
+
+    }
+
+    catch (error) {
+
+        console.error(error);
+
+        updateStatus(
+            "❌ Transaction cancelled or failed"
+        );
+
+    }
+
+}
+
+</script>
 
 </body>
 </html>
