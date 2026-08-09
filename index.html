@@ -3,13 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Actuator Control</title>
+
+    <title>ESP32 Actuator Control</title>
+
+    <!-- MQTT.js -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 
     <style>
         body {
             font-family: Arial, sans-serif;
             text-align: center;
-            margin-top: 80px;
+            margin: 0;
+            padding-top: 70px;
+            background: #f4f4f4;
         }
 
         h1 {
@@ -22,8 +28,8 @@
             padding: 20px;
             margin: 20px auto;
             font-size: 24px;
-            border-radius: 12px;
             border: none;
+            border-radius: 12px;
             cursor: pointer;
         }
 
@@ -37,9 +43,19 @@
             color: white;
         }
 
+        #stop {
+            background: #555;
+            color: white;
+        }
+
+        button:active {
+            transform: scale(0.97);
+        }
+
         #status {
             margin-top: 30px;
             font-size: 18px;
+            font-weight: bold;
         }
     </style>
 </head>
@@ -48,49 +64,125 @@
 
     <h1>ESP32 Actuator Control</h1>
 
-    <button id="extend" onclick="extendActuator()">
+    <button id="extend" onclick="sendCommand('EXTEND')">
         EXTEND
     </button>
 
-    <button id="retract" onclick="retractActuator()">
+    <button id="retract" onclick="sendCommand('RETRACT')">
         RETRACT
     </button>
 
-    <div id="status">Ready</div>
+    <button id="stop" onclick="sendCommand('STOP')">
+        STOP
+    </button>
+
+    <div id="status">
+        Connecting to controller...
+    </div>
+
 
     <script>
 
-        // Your ESP32's current IP address
-        const ESP32 = "http://192.168.12.197";
+        // ==================================================
+        // HIVEMQ SETTINGS
+        // ==================================================
 
-        function extendActuator() {
-            document.getElementById("status").innerText = "Extending...";
+        const mqttHost =
+            "wss://8a667d6eb5234254958db7ce3a42fa44.s1.eu.hivemq.cloud:8884/mqtt";
 
-            fetch(ESP32 + "/extend")
-                .then(response => response.text())
-                .then(data => {
-                    document.getElementById("status").innerText = data;
-                })
-                .catch(error => {
-                    document.getElementById("status").innerText =
-                        "Could not connect to ESP32";
-                    console.error(error);
-                });
-        }
+        const mqttUsername = "web-controller";
 
-        function retractActuator() {
-            document.getElementById("status").innerText = "Retracting...";
+        const mqttPassword = "esp32run1!";
 
-            fetch(ESP32 + "/retract")
-                .then(response => response.text())
-                .then(data => {
-                    document.getElementById("status").innerText = data;
-                })
-                .catch(error => {
-                    document.getElementById("status").innerText =
-                        "Could not connect to ESP32";
-                    console.error(error);
-                });
+        const mqttTopic = "actuator/control";
+
+
+        // ==================================================
+        // CONNECT TO HIVEMQ
+        // ==================================================
+
+        const client = mqtt.connect(mqttHost, {
+
+            username: mqttUsername,
+
+            password: mqttPassword,
+
+            protocol: "wss",
+
+            reconnectPeriod: 2000
+        });
+
+
+        // ==================================================
+        // CONNECTION EVENTS
+        // ==================================================
+
+        client.on("connect", function () {
+
+            console.log("Connected to HiveMQ");
+
+            document.getElementById("status").innerText =
+                "🟢 Connected to controller";
+
+        });
+
+
+        client.on("error", function (error) {
+
+            console.error("MQTT error:", error);
+
+            document.getElementById("status").innerText =
+                "🔴 Connection error";
+
+        });
+
+
+        client.on("offline", function () {
+
+            document.getElementById("status").innerText =
+                "🟡 Controller offline";
+
+        });
+
+
+        // ==================================================
+        // SEND ACTUATOR COMMAND
+        // ==================================================
+
+        function sendCommand(command) {
+
+            if (!client.connected) {
+
+                document.getElementById("status").innerText =
+                    "🔴 Not connected";
+
+                return;
+            }
+
+            client.publish(
+                mqttTopic,
+                command,
+                {
+                    qos: 0
+                },
+                function (error) {
+
+                    if (error) {
+
+                        console.error(error);
+
+                        document.getElementById("status").innerText =
+                            "🔴 Command failed";
+
+                    } else {
+
+                        document.getElementById("status").innerText =
+                            "Command sent: " + command;
+
+                        console.log("Sent:", command);
+                    }
+                }
+            );
         }
 
     </script>
