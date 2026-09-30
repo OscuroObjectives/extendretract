@@ -352,17 +352,20 @@ async function updateWeight() {
 
 
 // ======================================================
-// UPDATE WEIGHT EVERY SECOND
+// UPDATE WEIGHT
 // ======================================================
 
-setInterval(
-    updateWeight,
-    1000
-);
+async function updateWeightLoop() {
+
+    await updateWeight();
+
+    // Wait 1 second AFTER the previous request finishes
+    setTimeout(updateWeightLoop, 1000);
+}
 
 
-// Get first reading immediately
-updateWeight();
+// Start the weight loop
+updateWeightLoop();
 
 
 // ======================================================
