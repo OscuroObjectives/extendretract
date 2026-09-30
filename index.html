@@ -224,13 +224,17 @@ const weightTopic = "scale/weight";
 // SOLIDITY CONTRACT
 // ======================================================
 
-const contractAddress =
-    "0xdF0c26f4EE1F23349534B4e5fe5364d5AC0ed4F3";
+const contractAddress = "0xE35C6b6744472df4B84E15f297F1beFff5418aBc";
 
 const contractABI = [
-    "function extend()",
-    "function retract()",
-    "function stop()"
+    "function retract(uint256 weight) payable",
+    "function extend(uint256 weight)",
+    "function stop()",
+    "function getBalance() view returns (uint256)",
+    "function initialWeight() view returns (uint256)",
+    "function remainingWeight() view returns (uint256)",
+    "function amountPaid() view returns (uint256)",
+    "function boxLocked() view returns (bool)"
 ];
 
 
