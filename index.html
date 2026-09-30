@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>ESP32 Actuator Control</title>
+    <title>ESP32 Lock Box</title>
 
     <!-- MQTT.js -->
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
@@ -13,17 +13,55 @@
     <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.5/dist/ethers.umd.min.js"></script>
 
     <style>
+
         body {
             font-family: Arial, sans-serif;
             text-align: center;
             margin: 0;
-            padding-top: 70px;
+            padding-top: 50px;
             background: #f4f4f4;
         }
 
         h1 {
-            margin-bottom: 40px;
+            margin-bottom: 30px;
         }
+
+        /* ==================================================
+           WEIGHT DISPLAY
+           ================================================== */
+
+        #weightBox {
+            background: white;
+            width: 300px;
+            margin: 0 auto 30px auto;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+        #weightLabel {
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+
+        #weight {
+            font-size: 48px;
+            font-weight: bold;
+        }
+
+        #weightUnit {
+            font-size: 22px;
+        }
+
+        #calibration {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        /* ==================================================
+           BUTTONS
+           ================================================== */
 
         button {
             display: block;
@@ -51,22 +89,80 @@
             color: white;
         }
 
+        #tare {
+            background: #2196F3;
+            color: white;
+        }
+
         button:disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
+
+        /* ==================================================
+           STATUS
+           ================================================== */
 
         #status {
             margin-top: 30px;
             font-size: 18px;
             font-weight: bold;
         }
+
+        #scaleStatus {
+            margin-top: 10px;
+            font-size: 16px;
+        }
+
     </style>
 </head>
 
 <body>
 
-    <h1>ESP32 Actuator Control</h1>
+    <h1>ESP32 Lock Box</h1>
+
+
+    <!-- ==================================================
+         WEIGHT
+         ================================================== -->
+
+    <div id="weightBox">
+
+        <div id="weightLabel">
+            Current Weight
+        </div>
+
+        <span id="weight">
+            --.--
+        </span>
+
+        <span id="weightUnit">
+            g
+        </span>
+
+        <div id="calibration">
+            Calibration: ----
+        </div>
+
+        <div id="scaleStatus">
+            ⚪ Scale connecting...
+        </div>
+
+    </div>
+
+
+    <!-- ==================================================
+         TARE
+         ================================================== -->
+
+    <button id="tare" onclick="fullTare()">
+        FULL TARE
+    </button>
+
+
+    <!-- ==================================================
+         ACTUATOR
+         ================================================== -->
 
     <button id="extend" onclick="authorizeAndSend('EXTEND')">
         EXTEND
@@ -80,12 +176,34 @@
         STOP
     </button>
 
+
+    <!-- ==================================================
+         MAIN STATUS
+         ================================================== -->
+
     <div id="status">
         Connecting...
     </div>
 
 
 <script>
+
+
+// ======================================================
+// ESP32 IP ADDRESS
+// ======================================================
+//
+// IMPORTANT:
+// Replace this with the IP address shown in your
+// Arduino Serial Monitor.
+//
+// Example:
+// const ESP32_IP = "192.168.12.197";
+//
+// ======================================================
+
+const ESP32_IP = "192.168.12.197";
+
 
 // ======================================================
 // HIVEMQ
@@ -122,11 +240,13 @@ const contractABI = [
 const mqttClient = mqtt.connect(mqttHost, {
 
     username: mqttUsername,
+
     password: mqttPassword,
 
     protocol: "wss",
 
     reconnectPeriod: 2000
+
 });
 
 
@@ -167,6 +287,149 @@ function updateStatus(message) {
 
 
 // ======================================================
+// READ ESP32 WEIGHT
+// ======================================================
+
+async function updateWeight() {
+
+    try {
+
+        const response = await fetch(
+            "http://" + ESP32_IP + "/weight"
+        );
+
+        if (!response.ok) {
+
+            throw new Error(
+                "HTTP error " + response.status
+            );
+
+        }
+
+        const data = await response.json();
+
+
+        // ----------------------------------------------
+        // DISPLAY WEIGHT
+        // ----------------------------------------------
+
+        document.getElementById("weight").innerText =
+            Number(data.weight).toFixed(2);
+
+
+        // ----------------------------------------------
+        // DISPLAY CALIBRATION
+        // ----------------------------------------------
+
+        document.getElementById("calibration").innerText =
+            "Calibration: " +
+            Number(data.calibration).toFixed(2);
+
+
+        // ----------------------------------------------
+        // SCALE STATUS
+        // ----------------------------------------------
+
+        document.getElementById("scaleStatus").innerText =
+            "🟢 Scale connected";
+
+
+    }
+
+    catch (error) {
+
+        console.error(
+            "Scale connection error:",
+            error
+        );
+
+        document.getElementById("scaleStatus").innerText =
+            "🔴 Scale disconnected";
+
+    }
+
+}
+
+
+// ======================================================
+// UPDATE WEIGHT EVERY SECOND
+// ======================================================
+
+setInterval(
+    updateWeight,
+    1000
+);
+
+
+// Get first reading immediately
+updateWeight();
+
+
+// ======================================================
+// FULL TARE
+// ======================================================
+
+async function fullTare() {
+
+    try {
+
+        updateStatus(
+            "⚖️ Performing full tare..."
+        );
+
+
+        const response = await fetch(
+            "http://" + ESP32_IP + "/full-tare"
+        );
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                "Tare failed"
+            );
+
+        }
+
+
+        const data = await response.json();
+
+
+        console.log(
+            "Tare response:",
+            data
+        );
+
+
+        updateStatus(
+            "✅ Full tare complete"
+        );
+
+
+        // Immediately update weight
+        updateWeight();
+
+
+    }
+
+    catch (error) {
+
+        console.error(
+            "Tare error:",
+            error
+        );
+
+
+        updateStatus(
+            "🔴 Full tare failed"
+        );
+
+    }
+
+}
+
+
+// ======================================================
 // META MASK + SOLIDITY + MQTT
 // ======================================================
 
@@ -174,40 +437,59 @@ async function authorizeAndSend(command) {
 
     try {
 
-        // Make sure MetaMask exists
+        // ----------------------------------------------
+        // MAKE SURE METAMASK EXISTS
+        // ----------------------------------------------
+
         if (!window.ethereum) {
 
-            alert("MetaMask is not installed.");
+            alert(
+                "MetaMask is not installed."
+            );
 
             return;
         }
 
 
-        // Make sure MQTT is connected
+        // ----------------------------------------------
+        // MAKE SURE MQTT IS CONNECTED
+        // ----------------------------------------------
+
         if (!mqttClient.connected) {
 
-            updateStatus("🔴 MQTT is not connected.");
+            updateStatus(
+                "🔴 MQTT is not connected."
+            );
 
             return;
         }
 
 
-        updateStatus("🦊 Opening MetaMask...");
+        updateStatus(
+            "🦊 Opening MetaMask..."
+        );
 
 
-        // Connect to MetaMask
+        // ----------------------------------------------
+        // CONNECT TO METAMASK
+        // ----------------------------------------------
+
         const provider =
-            new ethers.BrowserProvider(window.ethereum);
+            new ethers.BrowserProvider(
+                window.ethereum
+            );
 
 
-        // Request wallet connection
         await provider.send(
             "eth_requestAccounts",
             []
         );
 
 
-        // Check network
+        // ----------------------------------------------
+        // CHECK NETWORK
+        // ----------------------------------------------
+
         const network =
             await provider.getNetwork();
 
@@ -215,20 +497,30 @@ async function authorizeAndSend(command) {
         // Sepolia chain ID = 11155111
         if (network.chainId !== 11155111n) {
 
-            updateStatus("🔴 Switch MetaMask to Sepolia.");
+            updateStatus(
+                "🔴 Switch MetaMask to Sepolia."
+            );
 
-            alert("Please switch MetaMask to the Sepolia Testnet.");
+            alert(
+                "Please switch MetaMask to the Sepolia Testnet."
+            );
 
             return;
         }
 
 
-        // Get signer
+        // ----------------------------------------------
+        // GET SIGNER
+        // ----------------------------------------------
+
         const signer =
             await provider.getSigner();
 
 
-        // Create contract
+        // ----------------------------------------------
+        // CREATE CONTRACT
+        // ----------------------------------------------
+
         const contract =
             new ethers.Contract(
                 contractAddress,
@@ -238,32 +530,37 @@ async function authorizeAndSend(command) {
 
 
         updateStatus(
-            "🦊 Approve " + command + " in MetaMask..."
+            "🦊 Approve " +
+            command +
+            " in MetaMask..."
         );
 
 
-        // ==================================================
+        // ----------------------------------------------
         // CALL SOLIDITY FUNCTION
-        // ==================================================
+        // ----------------------------------------------
 
         let transaction;
 
 
         if (command === "EXTEND") {
 
-            transaction = await contract.extend();
+            transaction =
+                await contract.extend();
 
         }
 
         else if (command === "RETRACT") {
 
-            transaction = await contract.retract();
+            transaction =
+                await contract.retract();
 
         }
 
         else if (command === "STOP") {
 
-            transaction = await contract.stop();
+            transaction =
+                await contract.stop();
 
         }
 
@@ -279,7 +576,10 @@ async function authorizeAndSend(command) {
         );
 
 
-        // Wait for Sepolia confirmation
+        // ----------------------------------------------
+        // WAIT FOR SEPOLIA CONFIRMATION
+        // ----------------------------------------------
+
         await transaction.wait();
 
 
@@ -288,21 +588,27 @@ async function authorizeAndSend(command) {
         );
 
 
-        // ==================================================
+        // ----------------------------------------------
         // SEND MQTT COMMAND
-        // ==================================================
+        // ----------------------------------------------
 
         updateStatus(
-            "📡 Sending " + command + " to ESP32..."
+            "📡 Sending " +
+            command +
+            " to ESP32..."
         );
 
 
         mqttClient.publish(
+
             mqttTopic,
+
             command,
+
             {
                 qos: 0
             },
+
             function(error) {
 
                 if (error) {
@@ -318,12 +624,15 @@ async function authorizeAndSend(command) {
                 else {
 
                     updateStatus(
-                        "✅ " + command + " sent to ESP32"
+                        "✅ " +
+                        command +
+                        " sent to ESP32"
                     );
 
                 }
 
             }
+
         );
 
 
@@ -333,6 +642,7 @@ async function authorizeAndSend(command) {
 
         console.error(error);
 
+
         updateStatus(
             "❌ Transaction cancelled or failed"
         );
@@ -340,6 +650,7 @@ async function authorizeAndSend(command) {
     }
 
 }
+
 
 </script>
 
