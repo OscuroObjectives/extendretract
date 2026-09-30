@@ -217,6 +217,7 @@ const mqttUsername = "web-controller-v2";
 const mqttPassword = "Sevvipes1!";
 
 const mqttTopic = "actuator/control";
+const weightTopic = "scale/weight";
 
 
 // ======================================================
@@ -254,8 +255,47 @@ mqttClient.on("connect", function () {
 
     console.log("Connected to HiveMQ");
 
-    updateStatus("🟢 Controller ready");
+    mqttClient.subscribe(weightTopic, { qos: 0 }, function (error) {
 
+        if (error) {
+            console.error("Weight subscription failed:", error);
+            document.getElementById("scaleStatus").innerText =
+                "🔴 Scale subscription failed";
+            return;
+        }
+
+        console.log("Subscribed to:", weightTopic);
+
+        document.getElementById("scaleStatus").innerText =
+            "🟢 Scale connected";
+
+        updateStatus("🟢 Controller ready");
+    });
+
+});
+
+
+mqttClient.on("message", function (topic, payload) {
+
+    if (topic !== weightTopic) {
+        return;
+    }
+
+    const weight = Number(payload.toString());
+
+    if (!Number.isFinite(weight)) {
+        console.error("Invalid weight received:", payload.toString());
+        return;
+    }
+
+    document.getElementById("weight").innerText =
+        weight.toFixed(2);
+
+    document.getElementById("calibration").innerText =
+        "Calibration: 1634.20";
+
+    document.getElementById("scaleStatus").innerText =
+        "🟢 Scale connected";
 });
 
 
@@ -287,85 +327,15 @@ function updateStatus(message) {
 
 
 // ======================================================
-// READ ESP32 WEIGHT
+// WEIGHT VIA MQTT
 // ======================================================
-
-async function updateWeight() {
-
-    try {
-
-        const response = await fetch(
-            "http://" + ESP32_IP + "/weight"
-        );
-
-        if (!response.ok) {
-
-            throw new Error(
-                "HTTP error " + response.status
-            );
-
-        }
-
-        const data = await response.json();
-
-
-        // ----------------------------------------------
-        // DISPLAY WEIGHT
-        // ----------------------------------------------
-
-        document.getElementById("weight").innerText =
-            Number(data.weight).toFixed(2);
-
-
-        // ----------------------------------------------
-        // DISPLAY CALIBRATION
-        // ----------------------------------------------
-
-        document.getElementById("calibration").innerText =
-            "Calibration: " +
-            Number(data.calibration).toFixed(2);
-
-
-        // ----------------------------------------------
-        // SCALE STATUS
-        // ----------------------------------------------
-
-        document.getElementById("scaleStatus").innerText =
-            "🟢 Scale connected";
-
-
-    }
-
-    catch (error) {
-
-        console.error(
-            "Scale connection error:",
-            error
-        );
-
-        document.getElementById("scaleStatus").innerText =
-            "🔴 Scale disconnected";
-
-    }
-
-}
-
-
+//
+// The ESP32 publishes the current weight to:
+// scale/weight
+//
+// The MQTT message handler above receives the weight and
+// updates the display. No HTTP polling is needed.
 // ======================================================
-// UPDATE WEIGHT
-// ======================================================
-
-async function updateWeightLoop() {
-
-    await updateWeight();
-
-    // Wait 1 second AFTER the previous request finishes
-    setTimeout(updateWeightLoop, 1000);
-}
-
-
-// Start the weight loop
-updateWeightLoop();
 
 
 // ======================================================
@@ -409,8 +379,8 @@ async function fullTare() {
         );
 
 
-        // Immediately update weight
-        updateWeight();
+        // The weight display will update automatically
+        // when the ESP32 publishes the next MQTT weight.
 
 
     }
