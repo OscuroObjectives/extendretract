@@ -219,6 +219,9 @@ const mqttPassword = "Sevvipes1!";
 const mqttTopic = "actuator/control";
 const weightTopic = "scale/weight";
 
+// Latest weight received from the ESP32 through MQTT.
+let currentWeight = null;
+
 
 // ======================================================
 // SOLIDITY CONTRACT
@@ -291,6 +294,9 @@ mqttClient.on("message", function (topic, payload) {
         console.error("Invalid weight received:", payload.toString());
         return;
     }
+
+    // Keep the latest live MQTT weight available to the blockchain buttons.
+    currentWeight = weight;
 
     document.getElementById("weight").innerText =
         weight.toFixed(2);
@@ -519,18 +525,44 @@ async function authorizeAndSend(command) {
 
         let transaction;
 
-
+        // The deployed Solidity contract expects an integer number of grams.
+        // The scale displays two decimal places, so use the nearest whole gram.
         if (command === "EXTEND") {
 
+            if (currentWeight === null || !Number.isFinite(currentWeight)) {
+                updateStatus("🔴 No scale weight received yet.");
+                return;
+            }
+
+            const weightGrams = Math.round(currentWeight);
+
             transaction =
-                await contract.extend();
+                await contract.extend(weightGrams);
 
         }
 
         else if (command === "RETRACT") {
 
+            if (currentWeight === null || !Number.isFinite(currentWeight)) {
+                updateStatus("🔴 No scale weight received yet.");
+                return;
+            }
+
+            const weightGrams = Math.round(currentWeight);
+
+            if (weightGrams <= 0) {
+                updateStatus("🔴 Weight must be greater than zero.");
+                return;
+            }
+
+            // Contract price: 0.0125 ETH per gram.
+            const paymentAmount =
+                ethers.parseEther((weightGrams * 0.0125).toFixed(4));
+
             transaction =
-                await contract.retract();
+                await contract.retract(weightGrams, {
+                    value: paymentAmount
+                });
 
         }
 
