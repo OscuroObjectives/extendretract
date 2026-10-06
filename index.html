@@ -201,14 +201,6 @@ const mqttHost =
 // Enter the passwords for the two HiveMQ credentials you created.
 // Do NOT share these passwords publicly.
 
-const mqttPublishUsername = "website-publisher";
-const mqttPublishPassword = "Realoscuro1!";
-
-const mqttSubscribeUsername = "website-subscriber";
-const mqttSubscribePassword = "Realoscuro1!";
-
-const mqttTareUsername = "website-tare-publisher";
-const mqttTarePassword = "Realoscuro1!";
 
 const mqttTopic = "actuator/control";
 const weightTopic = "scale/weight";
@@ -235,152 +227,60 @@ const contractABI = [
     "function boxLocked() view returns (bool)"
 ];
 
-
 // ======================================================
-// MQTT CONNECTION
+// WEIGHT VIA RENDER
 // ======================================================
 
-// Subscriber connection: receives live weight from the ESP32.
-const mqttSubscribeClient = mqtt.connect(mqttHost, {
+// Get the latest weight from the private Render server.
+async function getWeight() {
 
-    username: mqttSubscribeUsername,
+    try {
 
-    password: mqttSubscribePassword,
+        const response = await fetch(
+            "https://weightbox-server.onrender.com/api/weight"
+        );
 
-    protocol: "wss",
-
-    reconnectPeriod: 2000
-
-});
-
-// Publisher connection: sends actuator commands to the ESP32.
-const mqttPublishClient = mqtt.connect(mqttHost, {
-
-    username: mqttPublishUsername,
-
-    password: mqttPublishPassword,
-
-    protocol: "wss",
-
-    reconnectPeriod: 2000
-
-});
-
-// TARE publisher connection
-const mqttTareClient = mqtt.connect(mqttHost, {
-
-    username: mqttTareUsername,
-
-    password: mqttTarePassword,
-
-    protocol: "wss",
-
-    reconnectPeriod: 2000
-
-});
-
-mqttSubscribeClient.on("connect", function () {
-
-    console.log("Weight subscriber connected to HiveMQ");
-
-    mqttSubscribeClient.subscribe(weightTopic, { qos: 0 }, function (error) {
-
-        if (error) {
-            console.error("Weight subscription failed:", error);
-            document.getElementById("scaleStatus").innerText =
-                "🔴 Scale subscription failed";
-            return;
+        if (!response.ok) {
+            throw new Error("Weight server request failed");
         }
 
-        console.log("Subscribed to:", weightTopic);
+        const data = await response.json();
+
+        if (!Number.isFinite(Number(data.weight))) {
+            throw new Error("Invalid weight received");
+        }
+
+        currentWeight = Number(data.weight);
+
+        document.getElementById("weight").innerText =
+            currentWeight.toFixed(2);
+
+        document.getElementById("calibration").innerText =
+            "Calibration: 1634.20";
 
         document.getElementById("scaleStatus").innerText =
             "🟢 Scale connected";
 
-        updateStatus("🟢 Controller ready");
-    });
-
-});
-
-
-mqttPublishClient.on("connect", function () {
-
-    console.log("Actuator publisher connected to HiveMQ");
-
-});
-
-mqttTareClient.on("connect", function () {
-
-    console.log("TARE publisher connected to HiveMQ");
-
-});
-
-mqttTareClient.on("error", function (error) {
-
-    console.error("TARE MQTT error:", error);
-
-});
-
-mqttSubscribeClient.on("message", function (topic, payload) {
-
-    if (topic !== weightTopic) {
-        return;
     }
 
-    const weight = Number(payload.toString());
+    catch (error) {
 
-    if (!Number.isFinite(weight)) {
-        console.error("Invalid weight received:", payload.toString());
-        return;
+        console.error("Weight server error:", error);
+
+        document.getElementById("scaleStatus").innerText =
+            "🔴 Scale server error";
+
     }
 
-    // Keep the latest live MQTT weight available to the blockchain buttons.
-    currentWeight = weight;
-
-    document.getElementById("weight").innerText =
-        weight.toFixed(2);
-
-    document.getElementById("calibration").innerText =
-        "Calibration: 1634.20";
-
-    document.getElementById("scaleStatus").innerText =
-        "🟢 Scale connected";
-});
+}
 
 
-mqttSubscribeClient.on("error", function (error) {
-
-    console.error("MQTT subscriber error:", error);
-
-    document.getElementById("scaleStatus").innerText =
-        "🔴 Scale MQTT error";
-
-});
+// Get the latest weight every 500 milliseconds.
+setInterval(getWeight, 500);
 
 
-mqttSubscribeClient.on("offline", function () {
-
-    document.getElementById("scaleStatus").innerText =
-        "🟡 Scale offline";
-
-});
-
-
-mqttPublishClient.on("error", function (error) {
-
-    console.error("MQTT publisher error:", error);
-
-    updateStatus("🔴 MQTT publisher connection error");
-
-});
-
-
-mqttPublishClient.on("offline", function () {
-
-    updateStatus("🟡 MQTT publisher offline");
-
-});
-
+// Get the first weight immediately.
+getWeight();
 
 // ======================================================
 // STATUS
@@ -393,83 +293,75 @@ function updateStatus(message) {
 }
 
 
-// ======================================================
-// WEIGHT VIA MQTT
-// ======================================================
-//
-// The ESP32 publishes the current weight to:
-// scale/weight
-//
-// The MQTT message handler above receives the weight and
-// updates the display. No HTTP polling is needed.
-// ======================================================
-
 
 // ======================================================
 // FULL TARE
 // ======================================================
 
-function fullTare() {
-
-    if (!mqttTareClient.connected) {
-
-        updateStatus(
-            "🔴 TARE MQTT is not connected."
-        );
-
-        return;
-    }
+async function fullTare() {
 
     updateStatus(
         "⚖️ Performing full tare..."
     );
 
-    mqttTareClient.publish(
+    try {
 
-        tareTopic,
-
-        "TARE",
-
-        {
-            qos: 0
-        },
-
-        function(error) {
-
-            if (error) {
-
-                console.error(
-                    "TARE MQTT error:",
-                    error
-                );
-
-                updateStatus(
-                    "🔴 Full tare failed"
-                );
-
+        const response = await fetch(
+            "https://weightbox-server.onrender.com/api/tare",
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                }
             }
+        );
 
-            else {
+        if (!response.ok) {
 
-                console.log(
-                    "TARE command sent."
-                );
+            const errorText = await response.text();
 
-                updateStatus(
-                    "✅ Full tare command sent"
-                );
+            console.error("TARE server error:", errorText);
 
-            }
+            updateStatus(
+                "🔴 Full tare failed"
+            );
+
+            return;
+        }
+
+        const result = await response.json();
+
+        if (result.success) {
+
+            updateStatus(
+                "✅ Full tare command sent"
+            );
+
+        } else {
+
+            updateStatus(
+                "🔴 Full tare failed"
+            );
 
         }
 
-    );
+    }
+
+    catch (error) {
+
+        console.error("TARE server error:", error);
+
+        updateStatus(
+            "🔴 Full tare failed"
+        );
+
+    }
 
 }
 
 
 // ======================================================
-// META MASK + SOLIDITY + MQTT
+// META MASK + SOLIDITY + RENDER
 // ======================================================
 
 async function authorizeAndSend(command) {
@@ -493,15 +385,6 @@ async function authorizeAndSend(command) {
         // ----------------------------------------------
         // MAKE SURE MQTT IS CONNECTED
         // ----------------------------------------------
-
-        if (!mqttPublishClient.connected) {
-
-            updateStatus(
-                "🔴 MQTT is not connected."
-            );
-
-            return;
-        }
 
 
         updateStatus(
@@ -663,44 +546,44 @@ else if (command === "RETRACT") {
         );
 
 
-        mqttPublishClient.publish(
-
-            mqttTopic,
-
-            command,
-
-            {
-                qos: 0
-            },
-
-            function(error) {
-
-                if (error) {
-
-                    console.error(error);
-
-                    updateStatus(
-                        "🔴 MQTT command failed."
-                    );
-
-                }
-
-                else {
-
-                    updateStatus(
-                        "✅ " +
-                        command +
-                        " sent to ESP32"
-                    );
-
-                }
-
-            }
-
-        );
-
-
+        const response = await fetch(
+    "https://weightbox-server.onrender.com/api/actuator",
+    {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            command: command
+        })
     }
+);
+
+if (!response.ok) {
+
+    const errorText = await response.text();
+
+    console.error("Server error:", errorText);
+
+    updateStatus("🔴 Server failed to send command.");
+    return;
+}
+
+const result = await response.json();
+
+if (result.success) {
+
+    updateStatus(
+        "✅ " +
+        command +
+        " sent to ESP32"
+    );
+
+} else {
+
+    updateStatus("🔴 Server failed to send command.");
+
+}
 
     catch (error) {
 
