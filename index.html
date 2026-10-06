@@ -212,12 +212,22 @@ const ESP32_IP = "192.168.12.197";
 const mqttHost =
     "wss://8a667d6eb5234254958db7ce3a42fa44.s1.eu.hivemq.cloud:8884/mqtt";
 
-const mqttUsername = "web-controller-v2";
+// WEBSITE MQTT CREDENTIALS
+// Enter the passwords for the two HiveMQ credentials you created.
+// Do NOT share these passwords publicly.
 
-const mqttPassword = "Sevvipes1!";
+const mqttPublishUsername = "website-publisher";
+const mqttPublishPassword = "Realoscuro1!";
+
+const mqttSubscribeUsername = "website-subscriber";
+const mqttSubscribePassword = "Realoscuro1!";
+
+const mqttTareUsername = "website-tare-publisher";
+const mqttTarePassword = "Realoscuro1!";
 
 const mqttTopic = "actuator/control";
 const weightTopic = "scale/weight";
+const tareTopic = "scale/tare";
 
 // Latest weight received from the ESP32 through MQTT.
 let currentWeight = null;
@@ -227,7 +237,7 @@ let currentWeight = null;
 // SOLIDITY CONTRACT
 // ======================================================
 
-const contractAddress = "0xE35C6b6744472df4B84E15f297F1beFff5418aBc";
+const contractAddress = "0x1B2324EDe0910FFcD9F7ee752E0a8B67A62c8D96";
 
 const contractABI = [
     "function retract(uint256 weight) payable",
@@ -245,11 +255,12 @@ const contractABI = [
 // MQTT CONNECTION
 // ======================================================
 
-const mqttClient = mqtt.connect(mqttHost, {
+// Subscriber connection: receives live weight from the ESP32.
+const mqttSubscribeClient = mqtt.connect(mqttHost, {
 
-    username: mqttUsername,
+    username: mqttSubscribeUsername,
 
-    password: mqttPassword,
+    password: mqttSubscribePassword,
 
     protocol: "wss",
 
@@ -257,12 +268,37 @@ const mqttClient = mqtt.connect(mqttHost, {
 
 });
 
+// Publisher connection: sends actuator commands to the ESP32.
+const mqttPublishClient = mqtt.connect(mqttHost, {
 
-mqttClient.on("connect", function () {
+    username: mqttPublishUsername,
 
-    console.log("Connected to HiveMQ");
+    password: mqttPublishPassword,
 
-    mqttClient.subscribe(weightTopic, { qos: 0 }, function (error) {
+    protocol: "wss",
+
+    reconnectPeriod: 2000
+
+});
+
+// TARE publisher connection
+const mqttTareClient = mqtt.connect(mqttHost, {
+
+    username: mqttTareUsername,
+
+    password: mqttTarePassword,
+
+    protocol: "wss",
+
+    reconnectPeriod: 2000
+
+});
+
+mqttSubscribeClient.on("connect", function () {
+
+    console.log("Weight subscriber connected to HiveMQ");
+
+    mqttSubscribeClient.subscribe(weightTopic, { qos: 0 }, function (error) {
 
         if (error) {
             console.error("Weight subscription failed:", error);
@@ -282,7 +318,25 @@ mqttClient.on("connect", function () {
 });
 
 
-mqttClient.on("message", function (topic, payload) {
+mqttPublishClient.on("connect", function () {
+
+    console.log("Actuator publisher connected to HiveMQ");
+
+});
+
+mqttTareClient.on("connect", function () {
+
+    console.log("TARE publisher connected to HiveMQ");
+
+});
+
+mqttTareClient.on("error", function (error) {
+
+    console.error("TARE MQTT error:", error);
+
+});
+
+mqttSubscribeClient.on("message", function (topic, payload) {
 
     if (topic !== weightTopic) {
         return;
@@ -309,18 +363,36 @@ mqttClient.on("message", function (topic, payload) {
 });
 
 
-mqttClient.on("error", function (error) {
+mqttSubscribeClient.on("error", function (error) {
 
-    console.error("MQTT error:", error);
+    console.error("MQTT subscriber error:", error);
 
-    updateStatus("🔴 MQTT connection error");
+    document.getElementById("scaleStatus").innerText =
+        "🔴 Scale MQTT error";
 
 });
 
 
-mqttClient.on("offline", function () {
+mqttSubscribeClient.on("offline", function () {
 
-    updateStatus("🟡 Controller offline");
+    document.getElementById("scaleStatus").innerText =
+        "🟡 Scale offline";
+
+});
+
+
+mqttPublishClient.on("error", function (error) {
+
+    console.error("MQTT publisher error:", error);
+
+    updateStatus("🔴 MQTT publisher connection error");
+
+});
+
+
+mqttPublishClient.on("offline", function () {
+
+    updateStatus("🟡 MQTT publisher offline");
 
 });
 
@@ -352,62 +424,61 @@ function updateStatus(message) {
 // FULL TARE
 // ======================================================
 
-async function fullTare() {
+function fullTare() {
 
-    try {
+    if (!mqttTareClient.connected) {
 
         updateStatus(
-            "⚖️ Performing full tare..."
+            "🔴 TARE MQTT is not connected."
         );
 
+        return;
+    }
 
-        const response = await fetch(
-            "http://" + ESP32_IP + "/full-tare"
-        );
+    updateStatus(
+        "⚖️ Performing full tare..."
+    );
 
+    mqttTareClient.publish(
 
-        if (!response.ok) {
+        tareTopic,
 
-            throw new Error(
-                "Tare failed"
-            );
+        "TARE",
+
+        {
+            qos: 0
+        },
+
+        function(error) {
+
+            if (error) {
+
+                console.error(
+                    "TARE MQTT error:",
+                    error
+                );
+
+                updateStatus(
+                    "🔴 Full tare failed"
+                );
+
+            }
+
+            else {
+
+                console.log(
+                    "TARE command sent."
+                );
+
+                updateStatus(
+                    "✅ Full tare command sent"
+                );
+
+            }
 
         }
 
-
-        const data = await response.json();
-
-
-        console.log(
-            "Tare response:",
-            data
-        );
-
-
-        updateStatus(
-            "✅ Full tare complete"
-        );
-
-
-        // The weight display will update automatically
-        // when the ESP32 publishes the next MQTT weight.
-
-
-    }
-
-    catch (error) {
-
-        console.error(
-            "Tare error:",
-            error
-        );
-
-
-        updateStatus(
-            "🔴 Full tare failed"
-        );
-
-    }
+    );
 
 }
 
@@ -438,7 +509,7 @@ async function authorizeAndSend(command) {
         // MAKE SURE MQTT IS CONNECTED
         // ----------------------------------------------
 
-        if (!mqttClient.connected) {
+        if (!mqttPublishClient.connected) {
 
             updateStatus(
                 "🔴 MQTT is not connected."
@@ -527,7 +598,7 @@ async function authorizeAndSend(command) {
 
         // The deployed Solidity contract expects an integer number of grams.
         // The scale displays two decimal places, so use the nearest whole gram.
-        if (command === "EXTEND") {
+                if (command === "EXTEND") {
 
             if (currentWeight === null || !Number.isFinite(currentWeight)) {
                 updateStatus("🔴 No scale weight received yet.");
@@ -550,17 +621,35 @@ async function authorizeAndSend(command) {
 
             const weightGrams = Math.round(currentWeight);
 
-            if (weightGrams <= 0) {
-                updateStatus("🔴 Weight must be greater than zero.");
-                return;
+            let retractWeight;
+            let paymentAmount;
+
+            // Empty box: 0–0.05 g
+            if (currentWeight >= 0 && currentWeight <= 0.05) {
+
+                retractWeight = 0;
+                paymentAmount = 0n;
+
             }
 
-            // Contract price: 0.0125 ETH per gram.
-            const paymentAmount =
-                ethers.parseEther((weightGrams * 0.0125).toFixed(4));
+            // Normal box weight
+            else {
+
+                retractWeight = weightGrams;
+
+                if (retractWeight <= 0) {
+                    updateStatus("🔴 Weight must be greater than zero.");
+                    return;
+                }
+
+                paymentAmount =
+                    ethers.parseEther(
+                        (retractWeight * 0.0125).toFixed(4)
+                    );
+            }
 
             transaction =
-                await contract.retract(weightGrams, {
+                await contract.retract(retractWeight, {
                     value: paymentAmount
                 });
 
@@ -608,7 +697,7 @@ async function authorizeAndSend(command) {
         );
 
 
-        mqttClient.publish(
+        mqttPublishClient.publish(
 
             mqttTopic,
 
