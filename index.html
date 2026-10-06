@@ -189,21 +189,6 @@
 <script>
 
 
-// ======================================================
-// ESP32 IP ADDRESS
-// ======================================================
-//
-// IMPORTANT:
-// Replace this with the IP address shown in your
-// Arduino Serial Monitor.
-//
-// Example:
-// const ESP32_IP = "192.168.12.197";
-//
-// ======================================================
-
-const ESP32_IP = "192.168.12.197";
-
 
 // ======================================================
 // HIVEMQ
@@ -612,48 +597,29 @@ async function authorizeAndSend(command) {
 
         }
 
-        else if (command === "RETRACT") {
+else if (command === "RETRACT") {
 
-            if (currentWeight === null || !Number.isFinite(currentWeight)) {
-                updateStatus("🔴 No scale weight received yet.");
-                return;
-            }
+    if (currentWeight === null || !Number.isFinite(currentWeight)) {
+        updateStatus("🔴 No scale weight received yet.");
+        return;
+    }
 
-            const weightGrams = Math.round(currentWeight);
+    const retractWeight = Math.max(
+        0,
+        Math.round(currentWeight)
+    );
 
-            let retractWeight;
-            let paymentAmount;
+    const paymentAmount =
+        ethers.parseEther(
+            (retractWeight * 0.0125).toFixed(4)
+        );
 
-            // Empty box: 0–0.05 g
-            if (currentWeight >= 0 && currentWeight <= 0.05) {
+    transaction =
+        await contract.retract(retractWeight, {
+            value: paymentAmount
+        });
 
-                retractWeight = 0;
-                paymentAmount = 0n;
-
-            }
-
-            // Normal box weight
-            else {
-
-                retractWeight = weightGrams;
-
-                if (retractWeight <= 0) {
-                    updateStatus("🔴 Weight must be greater than zero.");
-                    return;
-                }
-
-                paymentAmount =
-                    ethers.parseEther(
-                        (retractWeight * 0.0125).toFixed(4)
-                    );
-            }
-
-            transaction =
-                await contract.retract(retractWeight, {
-                    value: paymentAmount
-                });
-
-        }
+}
 
         else if (command === "STOP") {
 
